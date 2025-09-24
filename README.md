@@ -1,5 +1,10 @@
 # 🏗️ Agents Overview
 
+In this system, we have used a **pandas and text-based mechanism as a fallback** for core data processing tasks like cleaning, transformation, and formatting.  
+This ensures that even if an agent fails or produces incomplete results, the pipeline can still rely on deterministic pandas operations for stable handling of financial datasets.  
+
+---
+
 ## 1. Generic Data Intelligence Agent
 - **Role:** Universal Financial Data Intelligence Specialist  
 - **Goal:** Detects schema of any dataset. Identifies key columns like:  
