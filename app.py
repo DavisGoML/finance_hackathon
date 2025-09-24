@@ -68,6 +68,10 @@ if 'analysis_results' not in st.session_state:
 if 'processed_data' not in st.session_state:
     st.session_state.processed_data = None
 
+
+
+st.sidebar.image("logo.png", use_container_width=True)  # replace with your logo path
+
 # Sidebar navigation
 st.sidebar.title("Navigation")
 page = st.sidebar.selectbox("Choose a page:", ["Financial Insights", "Budget Planning"])
