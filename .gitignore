@@ -1,2 +1,18 @@
 venv/
 .env*
+
+
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+
+*.pdf
+*.png
+*.json
+*.csv
+
