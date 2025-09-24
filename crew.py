@@ -1,3 +1,4 @@
+
 import pandas as pd
 import os
 import json
@@ -37,32 +38,156 @@ def convert_to_json_serializable(obj):
         return float(obj)
     elif isinstance(obj, np.ndarray):
         return obj.tolist()
+    elif isinstance(obj, list):
+        return [convert_to_json_serializable(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: convert_to_json_serializable(v) for k, v in obj.items()}
     elif isinstance(obj, pd.Timestamp):
         return obj.isoformat()
     elif isinstance(obj, pd.Period):
         return str(obj)
-    elif isinstance(obj, dict):
-        return {k: convert_to_json_serializable(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [convert_to_json_serializable(item) for item in obj]
     elif pd.isna(obj):
         return None
     else:
         return obj
 
+def create_fallback_column_mapping(column_names, sample_data):
+    """
+    Create fallback column mapping when JSON parsing fails
+    """
+    mapping = {
+        "date_col": None,
+        "desc_col": None,
+        "amount_col": None,
+        "user_id_col": None,
+        "existing_category_col": None,
+        "direction_col": None,
+        "status_col": None,
+        "has_existing_categories": False,
+        "has_user_ids": False,
+        "data_quality_notes": "Fallback mapping used",
+        "recommended_categorization": "create_new"
+    }
+    
+    # Convert to lowercase for matching
+    lower_cols = [col.lower() for col in column_names]
+    
+    # Find date column
+    date_keywords = ['date', 'time', 'timestamp', 'transaction_date', 'txn_date']
+    for i, col in enumerate(lower_cols):
+        if any(keyword in col for keyword in date_keywords):
+            mapping["date_col"] = column_names[i]
+            break
+    
+    # Find amount/debit column
+    amount_keywords = ['amount', 'debit', 'withdrawal', 'expense', 'spend', 'value', 'cost']
+    for i, col in enumerate(lower_cols):
+        if any(keyword in col for keyword in amount_keywords):
+            mapping["amount_col"] = column_names[i]
+            break
+    
+    # Find description column
+    desc_keywords = ['description', 'desc', 'narration', 'details', 'transaction', 'merchant', 'payee']
+    for i, col in enumerate(lower_cols):
+        if any(keyword in col for keyword in desc_keywords):
+            mapping["desc_col"] = column_names[i]
+            break
+    
+    # Find user ID column
+    user_keywords = ['user_id', 'user', 'customer_id', 'account', 'userid']
+    for i, col in enumerate(lower_cols):
+        if any(keyword in col for keyword in user_keywords):
+            mapping["user_id_col"] = column_names[i]
+            mapping["has_user_ids"] = True
+            break
+    
+    # Find category column
+    cat_keywords = ['category', 'type', 'class', 'group', 'classification']
+    for i, col in enumerate(lower_cols):
+        if any(keyword in col for keyword in cat_keywords):
+            mapping["existing_category_col"] = column_names[i]
+            mapping["has_existing_categories"] = True
+            mapping["recommended_categorization"] = "use_existing"
+            break
+    
+    # Find direction column
+    direction_keywords = ['direction', 'debit', 'credit', 'type', 'transaction_type']
+    for i, col in enumerate(lower_cols):
+        if any(keyword in col for keyword in direction_keywords):
+            mapping["direction_col"] = column_names[i]
+            break
+    
+    # Find status column
+    status_keywords = ['status', 'state', 'success', 'failed']
+    for i, col in enumerate(lower_cols):
+        if any(keyword in col for keyword in status_keywords):
+            mapping["status_col"] = column_names[i]
+            break
+    
+    # If critical columns not found, use first few columns as fallback
+    if not mapping["date_col"] and len(column_names) > 0:
+        mapping["date_col"] = column_names[0]
+    if not mapping["desc_col"] and len(column_names) > 1:
+        mapping["desc_col"] = column_names[1]
+    if not mapping["amount_col"] and len(column_names) > 2:
+        mapping["amount_col"] = column_names[2]
+    
+    return mapping
+
 class MultiUserFinancialAnalyzer:
     """
-    Enhanced Multi-User Financial Analysis System
-    Processes UPI transaction data for multiple users simultaneously
+    Enhanced Multi-User Financial Analysis System with Generic Data Intelligence
+    Processes any financial transaction data using AI-powered data discovery
     """
     
     def __init__(self, openai_api_key: str = None):
         if openai_api_key:
             os.environ["OPENAI_API_KEY"] = openai_api_key
         self.llm = ChatOpenAI(model="gpt-4o", temperature=0.1, max_tokens=4000)
+        self.data_schema = None
         
+    def create_generic_data_intelligence_agent(self):
+        """Create the generic data intelligence agent for any financial data format"""
+        return Agent(
+            role='Universal Financial Data Intelligence Specialist',
+            goal="""
+            Analyze ANY financial dataset structure and intelligently identify key columns:
+            - Date/timestamp columns (any format or naming convention)
+            - Amount/transaction value columns (any currency, positive/negative values)
+            - Description/merchant/payee/reference columns
+            - User/customer/account identifier columns (detect single vs multi-user)
+            - Existing category/classification columns (or determine need for creation)
+            - Transaction direction columns (debit/credit, in/out, send/receive)
+            - Status columns (success/failed/pending/completed)
+            - Location/geographic columns (city, country, region)
+            - Additional metadata (reference numbers, notes, transaction types)
+            
+            Determine optimal processing strategy for ANY financial data format.
+            """,
+            backstory="""
+            You are the world's leading financial data archaeologist with 25+ years of experience
+            analyzing financial datasets from every conceivable source: traditional banks, digital
+            wallets, cryptocurrency exchanges, payment processors, accounting software, expense
+            management systems, and personal finance apps from around the globe.
+            
+            You have an intuitive understanding of financial data patterns across different:
+            - Banking systems (traditional, digital, neo-banks)
+            - Payment methods (cards, UPI, wire transfers, digital wallets)
+            - Currencies and regions (USD, EUR, INR, CNY, etc.)
+            - Data formats (CSV, Excel, JSON, API exports)
+            - Naming conventions (English, local languages, technical codes)
+            
+            You can instantly recognize column purposes regardless of naming conventions,
+            languages, or unusual data structures. You understand transaction flows,
+            financial data relationships, and can adapt analysis approaches to any dataset.
+            """,
+            verbose=True,
+            llm=self.llm,
+            allow_delegation=False
+        )
+    
     def load_and_validate_data(self, file_path: str) -> pd.DataFrame:
-        """Load and validate UPI transaction data"""
+        """Load and validate any financial transaction data"""
         try:
             if file_path.endswith('.xlsx'):
                 df = pd.read_excel(file_path)
@@ -71,35 +196,143 @@ class MultiUserFinancialAnalyzer:
                 
             print(f"Loaded dataset with {len(df)} transactions")
             print(f"Columns: {df.columns.tolist()}")
-            print(f"Unique users: {df['user_id'].nunique() if 'user_id' in df.columns else 'No user_id column'}")
             
             return df
         except Exception as e:
             raise Exception(f"Error loading data: {str(e)}")
     
+    def intelligent_data_schema_discovery(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Use AI agent to discover data schema and structure"""
+        
+        # Prepare comprehensive data sample for AI analysis
+        sample_size = min(15, len(df))
+        data_sample = df.head(sample_size).to_string()
+        column_names = df.columns.tolist()
+        
+        # Get data type information
+        column_types = {col: str(df[col].dtype) for col in df.columns}
+        null_counts = {col: int(df[col].isnull().sum()) for col in df.columns}
+        unique_counts = {col: int(df[col].nunique()) for col in df.columns}
+        
+        # Sample values for each column
+        sample_values = {}
+        for col in df.columns:
+            sample_vals = df[col].dropna().head(5).tolist()
+            sample_values[col] = [str(val) for val in sample_vals]
+        
+        # Create data intelligence agent
+        data_agent = self.create_generic_data_intelligence_agent()
+        
+        # Create comprehensive schema discovery task
+        schema_task = Task(
+            description=f"""
+            Analyze this financial dataset and discover its complete structure:
+            
+            DATASET OVERVIEW:
+            - Total rows: {len(df)}
+            - Total columns: {len(df.columns)}
+            - Column names: {column_names}
+            - Data types: {column_types}
+            - Null counts: {null_counts}
+            - Unique value counts: {unique_counts}
+            - Sample values: {sample_values}
+            
+            SAMPLE DATA ({sample_size} rows):
+            {data_sample}
+            
+            CRITICAL: Analyze this data and respond with ONLY a valid JSON object:
+            
+            {{
+                "date_col": "exact_column_name_or_null",
+                "amount_col": "exact_column_name_or_null",
+                "desc_col": "exact_column_name_or_null",
+                "user_id_col": "exact_column_name_or_null",
+                "existing_category_col": "exact_column_name_or_null",
+                "direction_col": "exact_column_name_or_null",
+                "status_col": "exact_column_name_or_null",
+                "location_col": "exact_column_name_or_null",
+                "reference_col": "exact_column_name_or_null",
+                "has_existing_categories": false,
+                "has_user_ids": false,
+                "has_direction_info": false,
+                "has_status_info": false,
+                "dataset_type": "single_user|multi_user|bank_statement|credit_card|upi|other",
+                "currency_detected": "USD|INR|EUR|GBP|other|unknown",
+                "data_quality": "excellent|good|fair|poor",
+                "recommended_categorization": "create_new|use_existing|hybrid",
+                "processing_complexity": "simple|moderate|complex",
+                "special_notes": "any_important_observations"
+            }}
+            
+            Use exact column names from the provided list. Set boolean values based on actual data.
+            RESPOND ONLY WITH THE JSON - NO OTHER TEXT.
+            """,
+            agent=data_agent,
+            expected_output="Valid JSON object with complete data schema analysis"
+        )
+        
+        # Execute schema discovery with error handling
+        try:
+            crew = Crew(
+                agents=[data_agent],
+                tasks=[schema_task],
+                verbose=True,
+                process=Process.sequential
+            )
+            
+            result = crew.kickoff()
+            response_text = result.raw if hasattr(result, 'raw') else str(result)
+            
+            # Extract and parse JSON
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                schema = json.loads(json_str)
+                print(f"AI-discovered schema: {schema}")
+                self.data_schema = schema
+                return schema
+            else:
+                raise ValueError("No valid JSON found in agent response")
+                
+        except (json.JSONDecodeError, ValueError, Exception) as e:
+            print(f"AI schema discovery failed: {e}")
+            print("Using intelligent fallback detection...")
+            fallback_schema = create_fallback_column_mapping(column_names, df.head())
+            self.data_schema = fallback_schema
+            return fallback_schema
+    
     def preprocess_upi_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Preprocess UPI transaction data according to schema"""
+        """Preprocess financial data using AI-discovered schema"""
+        
+        # Discover data schema using AI agent
+        schema = self.intelligent_data_schema_discovery(df)
+        
         processed_df = df.copy()
         
-        # Standardize column names
-        column_mapping = {
-            'timestamp': 'Date',
-            'amount': 'Amount',
-            'merchant_name': 'Description',
-            'category': 'Category',
-            'direction': 'Direction',
-            'user_id': 'UserID',
-            'city': 'City',
-            'transaction_type': 'TransactionType',
-            'status': 'Status',
-            'note': 'Note'
-        }
+        # Apply intelligent column mapping based on AI discovery
+        column_mapping = {}
         
-        # Apply mapping only for existing columns
-        existing_mapping = {k: v for k, v in column_mapping.items() if k in df.columns}
-        processed_df = processed_df.rename(columns=existing_mapping)
+        if schema.get('date_col'):
+            column_mapping[schema['date_col']] = 'Date'
+        if schema.get('amount_col'):
+            column_mapping[schema['amount_col']] = 'Amount'
+        if schema.get('desc_col'):
+            column_mapping[schema['desc_col']] = 'Description'
+        if schema.get('user_id_col'):
+            column_mapping[schema['user_id_col']] = 'UserID'
+        if schema.get('existing_category_col'):
+            column_mapping[schema['existing_category_col']] = 'Category'
+        if schema.get('direction_col'):
+            column_mapping[schema['direction_col']] = 'Direction'
+        if schema.get('status_col'):
+            column_mapping[schema['status_col']] = 'Status'
+        if schema.get('location_col'):
+            column_mapping[schema['location_col']] = 'City'
         
-        # Data cleaning
+        # Rename columns based on AI discovery
+        processed_df = processed_df.rename(columns=column_mapping)
+        
+        # Intelligent data cleaning based on discovered schema
         if 'Date' in processed_df.columns:
             processed_df['Date'] = pd.to_datetime(processed_df['Date'], errors='coerce')
         
@@ -107,101 +340,153 @@ class MultiUserFinancialAnalyzer:
             processed_df['Amount'] = pd.to_numeric(processed_df['Amount'], errors='coerce')
             processed_df = processed_df[processed_df['Amount'] > 0]
         
-        # Filter only debit transactions (money spent)
-        if 'Direction' in processed_df.columns:
-            processed_df = processed_df[processed_df['Direction'].str.lower() == 'debit']
+        # Apply direction filtering if available
+        if 'Direction' in processed_df.columns and schema.get('has_direction_info'):
+            # Filter for expense/debit transactions
+            debit_keywords = ['debit', 'out', 'expense', 'withdrawal', 'send', 'payment']
+            processed_df = processed_df[
+                processed_df['Direction'].str.lower().str.contains('|'.join(debit_keywords), na=False)
+            ]
         
-        # Filter only successful transactions
-        if 'Status' in processed_df.columns:
-            processed_df = processed_df[processed_df['Status'].str.lower() == 'success']
+        # Apply status filtering if available
+        if 'Status' in processed_df.columns and schema.get('has_status_info'):
+            # Keep only successful transactions
+            success_keywords = ['success', 'completed', 'posted', 'settled', 'approved']
+            processed_df = processed_df[
+                processed_df['Status'].str.lower().str.contains('|'.join(success_keywords), na=False)
+            ]
         
-        # Clean category data
-        if 'Category' not in processed_df.columns and 'Description' in processed_df.columns:
+        # Apply intelligent categorization
+        if not schema.get('has_existing_categories') and 'Description' in processed_df.columns:
             processed_df['Category'] = processed_df['Description'].apply(self.smart_categorize_upi)
         
-        return processed_df.dropna(subset=['Date', 'Amount', 'UserID'])
+        # Clean data - keep only rows with essential information
+        essential_cols = ['Date', 'Amount']
+        if 'UserID' in processed_df.columns:
+            essential_cols.append('UserID')
+        
+        processed_df = processed_df.dropna(subset=essential_cols)
+        
+        print(f"AI-powered preprocessing completed: {len(processed_df)} valid transactions")
+        print(f"Detected as: {schema.get('dataset_type', 'unknown')} dataset")
+        if schema.get('has_user_ids'):
+            print(f"Multi-user dataset detected with {processed_df['UserID'].nunique()} users")
+        
+        return processed_df
     
     def smart_categorize_upi(self, description):
-        """Enhanced UPI transaction categorization"""
+        """Enhanced AI-powered transaction categorization"""
+        if pd.isna(description):
+            return 'Other'
+            
         desc = str(description).lower()
         
+        # Enhanced categories with more keywords and patterns
         categories = {
             'Food & Dining': [
                 'zomato', 'swiggy', 'uber eats', 'food panda', 'dominos', 'pizza hut', 
                 'mcdonalds', 'kfc', 'restaurant', 'cafe', 'food', 'dining', 'meal',
-                'grocery', 'supermarket', 'big bazaar', 'dmart', 'reliance fresh'
+                'grocery', 'supermarket', 'big bazaar', 'dmart', 'reliance fresh',
+                'kitchen', 'cook', 'eat', 'lunch', 'dinner', 'breakfast', 'snack'
             ],
             'Transportation': [
                 'uber', 'ola', 'rapido', 'taxi', 'auto', 'bus', 'metro', 'irctc',
-                'petrol', 'fuel', 'gas', 'parking', 'toll', 'transport'
+                'petrol', 'fuel', 'gas', 'parking', 'toll', 'transport',
+                'cab', 'ride', 'commute', 'travel', 'railway', 'flight'
             ],
-            'Shopping': [
+            'Shopping & Retail': [
                 'amazon', 'flipkart', 'myntra', 'ajio', 'nykaa', 'shopping',
-                'mall', 'retail', 'store', 'purchase', 'buy', 'myntra', 'meesho'
+                'mall', 'retail', 'store', 'purchase', 'buy', 'meesho',
+                'cloth', 'dress', 'shoe', 'bag', 'accessory', 'fashion'
             ],
             'Bills & Utilities': [
                 'electricity', 'water', 'gas cylinder', 'internet', 'broadband',
                 'mobile', 'phone', 'recharge', 'bill', 'utility', 'bsnl', 'airtel',
-                'jio', 'vi', 'vodafone'
+                'jio', 'vi', 'vodafone', 'wifi', 'connection', 'postpaid', 'prepaid'
             ],
             'Entertainment': [
                 'netflix', 'amazon prime', 'hotstar', 'spotify', 'youtube',
                 'movie', 'cinema', 'pvr', 'inox', 'game', 'entertainment',
-                'subscription', 'music', 'book my show'
+                'subscription', 'music', 'book my show', 'concert', 'show', 'stream'
             ],
             'Healthcare': [
                 'hospital', 'doctor', 'medical', 'pharmacy', 'medicine',
-                'health', 'clinic', 'apollo', '1mg', 'pharmeasy', 'netmeds'
+                'health', 'clinic', 'apollo', '1mg', 'pharmeasy', 'netmeds',
+                'dental', 'checkup', 'treatment', 'medical', 'lab', 'test'
             ],
             'Financial Services': [
                 'bank', 'atm', 'loan', 'emi', 'insurance', 'investment',
-                'mutual fund', 'sip', 'credit card', 'paytm', 'phonepe', 'gpay'
+                'mutual fund', 'sip', 'credit card', 'paytm', 'phonepe', 'gpay',
+                'transfer', 'payment', 'fee', 'charge', 'interest'
             ],
             'Education': [
                 'school', 'college', 'university', 'course', 'training',
-                'education', 'book', 'byju', 'unacademy', 'upgrad'
+                'education', 'book', 'byju', 'unacademy', 'upgrad',
+                'tuition', 'class', 'study', 'exam', 'fee', 'admission'
             ],
-            'Travel': [
+            'Travel & Vacation': [
                 'hotel', 'flight', 'train', 'bus booking', 'oyo', 'makemytrip',
-                'goibibo', 'yatra', 'travel', 'booking', 'holiday'
+                'goibibo', 'yatra', 'travel', 'booking', 'holiday',
+                'vacation', 'trip', 'tour', 'resort', 'stay'
             ],
             'Personal Care': [
                 'salon', 'spa', 'beauty', 'grooming', 'urban company',
-                'personal care', 'cosmetics'
+                'personal care', 'cosmetics', 'haircut', 'massage',
+                'facial', 'manicure', 'pedicure'
+            ],
+            'Housing & Rent': [
+                'rent', 'housing', 'maintenance', 'society', 'apartment',
+                'home', 'repair', 'cleaning', 'maid', 'security'
             ]
         }
         
+        # Enhanced matching with partial word matching
         for category, keywords in categories.items():
             if any(keyword in desc for keyword in keywords):
                 return category
+        
+        # Fallback pattern matching for unknown merchants
+        if any(word in desc for word in ['pay', 'purchase', 'buy', 'order']):
+            return 'Shopping & Retail'
+        elif any(word in desc for word in ['transfer', 'send', 'receive']):
+            return 'Financial Services'
         
         return 'Other'
     
     def get_users_list(self, df: pd.DataFrame) -> List[str]:
         """Get list of unique users from the dataset"""
-        return df['UserID'].unique().tolist()
+        if 'UserID' in df.columns:
+            return df['UserID'].unique().tolist()
+        else:
+            return ['single_user']  # Single user dataset
     
     def filter_user_data(self, df: pd.DataFrame, user_id: str) -> pd.DataFrame:
         """Filter data for a specific user"""
-        user_df = df[df['UserID'] == user_id].copy()
-        print(f"User {user_id}: {len(user_df)} transactions")
-        return user_df
+        if user_id == 'single_user':
+            return df.copy()
+        else:
+            user_df = df[df['UserID'] == user_id].copy()
+            print(f"User {user_id}: {len(user_df)} transactions")
+            return user_df
     
     def create_agents(self):
         """Create the multi-agent system for financial analysis"""
         
         # Profile Builder Agent
         profile_builder = Agent(
-            role='UPI Financial Profile Builder',
+            role='Universal Financial Profile Builder',
             goal="""
-            Analyze UPI transaction patterns to infer user's income class, life stage, 
-            spending personality, and financial behavior profile from digital payment habits.
-            Focus on UPI-specific patterns like merchant preferences, digital adoption, and spending frequency.
+            Analyze transaction patterns to infer user's financial profile including income class, 
+            life stage, spending personality, and financial behavior patterns.
+            Adapt analysis based on detected data type (UPI, bank statement, credit card, etc.)
+            and provide insights relevant to the specific financial data format.
             """,
             backstory="""
-            You are a UPI and digital payments expert with deep knowledge of Indian fintech ecosystem.
-            You understand spending patterns across different income segments, age groups, and cities in India.
-            You can identify lifestyle indicators from UPI merchant data and transaction frequencies.
+            You are a financial behavior analyst with expertise across all payment systems
+            and transaction types. You understand spending patterns across different demographics,
+            regions, and financial systems. You can identify lifestyle indicators from any
+            type of financial transaction data and provide meaningful insights regardless
+            of the data source or format.
             """,
             verbose=True,
             llm=self.llm,
@@ -210,16 +495,17 @@ class MultiUserFinancialAnalyzer:
         
         # Trend Analyzer Agent
         trend_analyzer = Agent(
-            role='UPI Spending Trend Analyzer',
+            role='Universal Financial Trend Analyzer',
             goal="""
-            Identify spending trends, seasonal patterns, merchant loyalty, day-by-day and 
-            month-on-month changes in UPI transactions. Detect peak expense periods and 
-            anomalous spending behaviors specific to digital payments.
+            Identify spending trends, patterns, seasonal variations, and anomalies in any
+            financial transaction data. Provide insights on spending behaviors, peak periods,
+            and predictive analysis regardless of data source or transaction type.
             """,
             backstory="""
-            You are a digital payments analytics expert specializing in UPI transaction patterns.
-            You excel at identifying spending cycles, merchant preferences, and digital payment trends.
-            You understand how Indians use UPI for different types of transactions throughout the month.
+            You are a financial data scientist specializing in trend analysis across all
+            types of financial data. You excel at identifying meaningful patterns in spending
+            behavior, seasonal trends, and anomalous transactions. You can adapt your analysis
+            approach to any financial data format and provide actionable insights.
             """,
             verbose=True,
             llm=self.llm,
@@ -228,16 +514,18 @@ class MultiUserFinancialAnalyzer:
         
         # Budgeting Expert Agent
         budgeting_expert = Agent(
-            role='Digital Payment Budgeting Expert',
+            role='Universal Budget & Financial Planning Expert',
             goal="""
-            Create personalized budget allocation proposals based on UPI spending patterns,
-            considering Indian cost structures and digital payment habits. Provide specific
-            recommendations for optimizing digital spending and building savings.
+            Create personalized budget recommendations and financial planning advice based on
+            any type of financial transaction data. Provide specific, actionable budgeting
+            strategies that work across different financial systems and spending patterns.
             """,
             backstory="""
-            You are a personal finance expert specializing in digital payment optimization
-            and budgeting for Indian consumers. You understand regional cost variations,
-            UPI merchant categories, and evidence-based budgeting for digital-native users.
+            You are a certified financial planner with expertise in budgeting across all
+            financial systems and transaction types. You understand regional cost variations,
+            different payment methods, and can create practical budgeting advice regardless
+            of the data source. You excel at turning transaction analysis into actionable
+            financial recommendations.
             """,
             verbose=True,
             llm=self.llm,
@@ -246,16 +534,18 @@ class MultiUserFinancialAnalyzer:
         
         # Insight Generator Agent
         insight_generator = Agent(
-            role='UPI Financial Insights Synthesizer',
+            role='Universal Financial Insights Synthesizer',
             goal="""
-            Synthesize all UPI analysis into one coherent, personalized, actionable 
-            financial report. Focus on digital payment optimization, merchant loyalty 
-            programs, and UPI-specific financial recommendations.
+            Synthesize all financial analysis into coherent, personalized, actionable reports.
+            Create comprehensive financial insights that work regardless of data source,
+            transaction type, or financial system used by the individual.
             """,
             backstory="""
-            You are a senior fintech advisor who specializes in translating UPI transaction
-            analysis into clear, actionable insights. You excel at creating personalized
-            recommendations for digital payment optimization and financial health improvement.
+            You are a senior financial advisor who specializes in translating complex
+            financial analysis into clear, actionable insights. You excel at creating
+            personalized recommendations that work across all financial systems and
+            transaction types. You can adapt your communication style to different
+            data sources while maintaining consistency in advice quality.
             """,
             verbose=True,
             llm=self.llm,
@@ -305,11 +595,12 @@ class MultiUserFinancialAnalyzer:
                 'user_id': user_id,
                 'status': 'success',
                 'executive_summary': self.extract_executive_summary(final_report),
-                'comprehensive_narrative': final_report,  # Fixed: using 'comprehensive_narrative'
+                'comprehensive_narrative': final_report,
                 'financial_health_score': float(self.extract_health_score(final_report)),
                 'key_recommendations': self.extract_recommendations(final_report),
                 'data_insights': convert_to_json_serializable(analysis_context),
                 'chart_path': chart_path,
+                'data_schema': self.data_schema,  # Include discovered schema
                 'summary': {
                     'total_transactions': int(len(user_data)),
                     'total_spending': float(user_data['Amount'].sum()),
