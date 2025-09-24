@@ -1,7 +1,0 @@
-streamlit
-pandas
-python-dotenv
-matplotlib
-fpdf2
-crewai
-crewai_tools

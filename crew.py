@@ -2,7 +2,14 @@ import pandas as pd
 import os
 import json
 import re
+import matplotlib
+matplotlib.use('Agg', force=True)
+
+# Clear any existing state
 import matplotlib.pyplot as plt
+plt.ioff()  # Turn off interactive mode
+plt.close('all')
+            
 import seaborn as sns
 from datetime import datetime, timedelta
 from collections import Counter
@@ -502,50 +509,90 @@ class MultiUserFinancialAnalyzer:
         return [profile_task, trend_task, budget_task, synthesis_task]
     
     def create_user_visualizations(self, user_data: pd.DataFrame, user_id: str) -> str:
-        """Create visualization for individual user"""
+        """Create visualization for individual user - THREAD-SAFE VERSION"""
         try:
-            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
-            fig.suptitle(f'UPI Spending Analysis - User {user_id}', fontsize=16, fontweight='bold')
-            
-            # Category spending pie chart
-            category_spending = user_data.groupby('Category')['Amount'].sum().sort_values(ascending=False).head(8)
-            if not category_spending.empty:
-                ax1.pie(category_spending.values, labels=category_spending.index, autopct='%1.1f%%')
-                ax1.set_title('Spending by Category', fontweight='bold')
-            
-            # Monthly trend
-            monthly_spending = user_data.groupby(user_data['Date'].dt.to_period('M'))['Amount'].sum()
-            if len(monthly_spending) > 1:
-                monthly_spending.plot(kind='line', ax=ax2, marker='o', color='green')
-                ax2.set_title('Monthly Spending Trend', fontweight='bold')
-                ax2.tick_params(axis='x', rotation=45)
-            else:
-                ax2.text(0.5, 0.5, 'Insufficient data\nfor monthly trend', 
-                        ha='center', va='center', transform=ax2.transAxes)
-                ax2.set_title('Monthly Spending Trend', fontweight='bold')
-            
-            # Daily pattern
-            daily_spending = user_data.groupby(user_data['Date'].dt.day_name())['Amount'].sum()
-            if not daily_spending.empty:
-                daily_spending.plot(kind='bar', ax=ax3, color='orange')
-                ax3.set_title('Spending by Day of Week', fontweight='bold')
-                ax3.tick_params(axis='x', rotation=45)
-            
-            # Top merchants
-            top_merchants = user_data.groupby('Description')['Amount'].sum().sort_values(ascending=False).head(6)
-            if not top_merchants.empty:
-                top_merchants.plot(kind='bar', ax=ax4, color='purple')
-                ax4.set_title('Top Merchants by Spending', fontweight='bold')
-                ax4.tick_params(axis='x', rotation=45)
-            
-            plt.tight_layout()
-            chart_path = f"user_{user_id}_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-            plt.savefig(chart_path, dpi=300, bbox_inches='tight')
-            plt.close()
-            
-            return chart_path
+            # Force matplotlib to use non-interactive backend BEFORE importing pyplot
+          
+            # Create figure with explicit non-GUI settings
+            with plt.style.context('default'):
+                fig = plt.figure(figsize=(16, 12), facecolor='white')
+                fig.suptitle(f'UPI Spending Analysis - User {user_id}', fontsize=16, fontweight='bold')
+                
+                # Create subplots with proper spacing
+                gs = fig.add_gridspec(2, 2, hspace=0.4, wspace=0.3, left=0.08, right=0.95, top=0.92, bottom=0.08)
+                ax1 = fig.add_subplot(gs[0, 0])
+                ax2 = fig.add_subplot(gs[0, 1])
+                ax3 = fig.add_subplot(gs[1, 0])
+                ax4 = fig.add_subplot(gs[1, 1])
+                
+                # Category spending pie chart
+                category_spending = user_data.groupby('Category')['Amount'].sum().sort_values(ascending=False).head(8)
+                if not category_spending.empty:
+                    ax1.pie(category_spending.values, labels=category_spending.index, autopct='%1.1f%%', startangle=90)
+                    ax1.set_title('Spending by Category', fontweight='bold', pad=10)
+                else:
+                    ax1.text(0.5, 0.5, 'No category data', ha='center', va='center', transform=ax1.transAxes)
+                    ax1.set_title('Spending by Category', fontweight='bold', pad=10)
+                
+                # Monthly trend
+                monthly_spending = user_data.groupby(user_data['Date'].dt.to_period('M'))['Amount'].sum()
+                if len(monthly_spending) > 1:
+                    ax2.plot(monthly_spending.index.astype(str), monthly_spending.values, marker='o', color='green')
+                    ax2.set_title('Monthly Spending Trend', fontweight='bold', pad=10)
+                    ax2.tick_params(axis='x', rotation=45, labelsize=8)
+                    ax2.grid(True, alpha=0.3)
+                else:
+                    ax2.text(0.5, 0.5, 'Insufficient data for trend', ha='center', va='center', transform=ax2.transAxes)
+                    ax2.set_title('Monthly Spending Trend', fontweight='bold', pad=10)
+                
+                # Daily pattern
+                day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                daily_spending = user_data.groupby(user_data['Date'].dt.day_name())['Amount'].sum()
+                daily_spending = daily_spending.reindex(day_order, fill_value=0)
+                
+                if not daily_spending.empty and daily_spending.sum() > 0:
+                    ax3.bar(daily_spending.index, daily_spending.values, color='orange', alpha=0.7)
+                    ax3.set_title('Spending by Day of Week', fontweight='bold', pad=10)
+                    ax3.tick_params(axis='x', rotation=45, labelsize=8)
+                    ax3.grid(True, alpha=0.3)
+                else:
+                    ax3.text(0.5, 0.5, 'No daily pattern data', ha='center', va='center', transform=ax3.transAxes)
+                    ax3.set_title('Spending by Day of Week', fontweight='bold', pad=10)
+                
+                # Top merchants
+                top_merchants = user_data.groupby('Description')['Amount'].sum().sort_values(ascending=False).head(6)
+                if not top_merchants.empty:
+                    truncated_names = [name[:15] + '...' if len(name) > 15 else name for name in top_merchants.index]
+                    ax4.bar(range(len(top_merchants)), top_merchants.values, color='purple', alpha=0.7)
+                    ax4.set_xticks(range(len(top_merchants)))
+                    ax4.set_xticklabels(truncated_names, rotation=45, ha='right', fontsize=8)
+                    ax4.set_title('Top Merchants by Spending', fontweight='bold', pad=10)
+                    ax4.grid(True, alpha=0.3)
+                else:
+                    ax4.text(0.5, 0.5, 'No merchant data', ha='center', va='center', transform=ax4.transAxes)
+                    ax4.set_title('Top Merchants by Spending', fontweight='bold', pad=10)
+                
+                # Save with unique filename
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                import os
+                chart_path = os.path.join(os.getcwd(), f"user_{user_id}_analysis_{timestamp}.png")
+                
+                # Save figure
+                fig.savefig(chart_path, dpi=200, bbox_inches='tight', facecolor='white')
+                
+                # Critical: Close figure immediately
+                plt.close(fig)
+                plt.close('all')
+                
+                return chart_path
+                
         except Exception as e:
-            print(f"Error creating visualization for user {user_id}: {str(e)}")
+            # Cleanup on error
+            try:
+                plt.close('all')
+            except:
+                pass
+            print(f"Visualization error for user {user_id}: {str(e)}")
             return None
     
     def extract_executive_summary(self, report_text: str) -> str:
@@ -595,35 +642,43 @@ class MultiUserFinancialAnalyzer:
         ]
     
     def generate_user_pdf_report(self, result_package: Dict[str, Any], user_data: pd.DataFrame) -> str:
-        """Generate PDF report for individual user - Fixed function"""
+        """Generate PDF report for individual user - FIXED VERSION"""
         try:
             # Prepare data for PDF generation
-            major_spends = user_data.nlargest(10, 'Amount')[['Date', 'Description', 'Amount', 'Category']]
+            major_spends = user_data.nlargest(10, 'Amount')[['Date', 'Description', 'Amount', 'Category']].copy()
+            major_spends['Date'] = major_spends['Date'].dt.strftime('%Y-%m-%d')
+            
             category_summary = user_data.groupby('Category')['Amount'].agg(['sum', 'count', 'mean']).round(2)
             category_summary.columns = ['Total', 'Count', 'Average']
             category_summary['Percentage'] = (category_summary['Total'] / category_summary['Total'].sum() * 100).round(1)
+            category_summary = category_summary.reset_index()
             
             monthly_summary = user_data.groupby(user_data['Date'].dt.to_period('M'))['Amount'].sum().reset_index()
+            monthly_summary['Date'] = monthly_summary['Date'].astype(str)
             monthly_summary.columns = ['Month', 'Amount']
             
-            # Prepare summary dictionary with all required fields - FIXED
+            # Create summary dictionary - FIXED KEYS
             summary_dict = {
                 'Total Spending': f"Rs.{result_package['summary']['total_spending']:,.2f}",
                 'Total Transactions': str(result_package['summary']['total_transactions']),
                 'Average Transaction': f"Rs.{result_package['summary']['average_transaction']:,.2f}",
                 'Top Category': result_package['summary']['top_category'],
-                'Most Frequent Category': result_package['summary']['top_category'],  # Using same as top category
+                'Most Frequent Category': result_package['summary']['top_category'],
                 'Date Range': result_package['summary']['date_range']
             }
             
-            # Create result dict for PDF generation - FIXED
+            # Create PDF result dictionary with CORRECT KEY
             pdf_result = {
                 'summary': summary_dict,
-                'comprehensive_narrative': result_package['comprehensive_narrative'],  # Fixed key name
+                'comprehensive_narrative': result_package.get('comprehensive_narrative', 
+                                                            result_package.get('narrative', 'Analysis completed successfully.')),
                 'chart_path': result_package.get('chart_path')
             }
             
-            # Generate PDF using the utils function
+            # Import generate_pdf from utils
+            from utils import generate_pdf
+            
+            # Generate PDF
             pdf_path = generate_pdf(
                 pdf_result, 
                 user_data.head(20), 
@@ -635,7 +690,7 @@ class MultiUserFinancialAnalyzer:
             return pdf_path
             
         except Exception as e:
-            print(f"Error generating PDF for user {result_package['user_id']}: {str(e)}")
+            print(f"PDF generation error for user {result_package['user_id']}: {str(e)}")
             return None
     
     def process_multiple_users(self, file_path: str, max_users: int = None, parallel: bool = True) -> Dict[str, Any]:

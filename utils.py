@@ -42,9 +42,7 @@ class EnhancedPDF(FPDF):
 def generate_pdf(result: dict, sample_df: pd.DataFrame = None, major_spends_df: pd.DataFrame = None, category_summary_df: pd.DataFrame = None, monthly_summary_df: pd.DataFrame = None) -> str:
     """
     Generate an enhanced PDF with comprehensive financial analysis.
-
-    This function is optimized for robustness and readability, handling potential
-    KeyErrors and streamlining table generation.
+    FIXED VERSION - No chart overlap with content.
     """
     pdf = EnhancedPDF()
     pdf.add_page()
@@ -107,10 +105,24 @@ def generate_pdf(result: dict, sample_df: pd.DataFrame = None, major_spends_df: 
             pdf.ln(3)
     pdf.set_text_color(0, 0, 0)
 
-    # Section: Top 10 Major Transactions
+    # FIXED: Add chart FIRST on a new page to prevent overlap
+    if chart_path and os.path.exists(chart_path):
+        pdf.add_page()  # Always start chart on new page
+        pdf.section_header("Spending Visualization")
+        try:
+            chart_width = 180
+            x = (210 - chart_width) / 2
+            current_y = pdf.get_y()
+            pdf.image(chart_path, x=x, y=current_y, w=chart_width)
+            # Move cursor AFTER the image (image height is approximately 135 for 180 width)
+            pdf.set_y(current_y + 140)  # Fixed positioning after chart
+        except Exception as e:
+            pdf.set_font('Helvetica', 'I', 10)
+            pdf.cell(0, 8, f"Chart could not be displayed: {str(e)}", 0, 1, 'C')
+
+    # Section: Top 10 Major Transactions - Start on new page
     if major_spends_df is not None and not major_spends_df.empty:
-        if pdf.get_y() > 200:
-            pdf.add_page()
+        pdf.add_page()  # Always start on new page
         pdf.section_header("Top 10 Major Transactions")
         
         headers = ['Date', 'Description', 'Amount', 'Category']
@@ -121,7 +133,7 @@ def generate_pdf(result: dict, sample_df: pd.DataFrame = None, major_spends_df: 
             lambda row: [
                 str(row.get('Date', 'N/A'))[:10],
                 (str(row.get('Description', ''))[:35] + '...'),
-                str(row.get('Amount', 'N/A')).replace('₹', 'Rs.'),
+                f"Rs.{float(row.get('Amount', 0)):,.2f}",
                 str(row.get('Category', 'N/A'))[:15]
             ], axis=1
         ).tolist()
@@ -130,7 +142,8 @@ def generate_pdf(result: dict, sample_df: pd.DataFrame = None, major_spends_df: 
     
     # Section: Category-wise Spending Analysis
     if category_summary_df is not None and not category_summary_df.empty:
-        if pdf.get_y() > 220:
+        # Check if we need a new page
+        if pdf.get_y() > 200:
             pdf.add_page()
         pdf.section_header("Category-wise Spending Analysis")
         
@@ -138,55 +151,43 @@ def generate_pdf(result: dict, sample_df: pd.DataFrame = None, major_spends_df: 
         widths = [45, 30, 25, 30, 25]
         
         # Prepare rows for the table
-        rows = category_summary_df.apply(
-            lambda row: [
-                str(row.name)[:20],
-                str(row.get('Total', 'N/A')).replace('₹', 'Rs.'),
-                str(row.get('Count', 'N/A')),
-                str(row.get('Average', 'N/A')).replace('₹', 'Rs.'),
-                str(row.get('Percentage', 'N/A'))
-            ], axis=1
-        ).tolist()
+        rows = []
+        for idx, row in category_summary_df.iterrows():
+            category = str(row.get('Category', idx)) if 'Category' in category_summary_df.columns else str(idx)
+            rows.append([
+                category[:20],
+                f"Rs.{float(row.get('Total', 0)):,.2f}",
+                str(int(row.get('Count', 0))),
+                f"Rs.{float(row.get('Average', 0)):,.2f}",
+                f"{float(row.get('Percentage', 0)):.1f}%"
+            ])
         
         create_table(headers, rows, widths, (34, 139, 34), [248, 255])
 
     # Section: Monthly Spending Trends
     if monthly_summary_df is not None and not monthly_summary_df.empty:
-        if pdf.get_y() > 240:
+        # Check if we need a new page
+        if pdf.get_y() > 220:
             pdf.add_page()
         pdf.section_header("Monthly Spending Trends")
         
         headers = ['Month', 'Total Spending']
-        widths = [60, 60]
+        widths = [80, 80]
         
         # Prepare rows for the table
         rows = monthly_summary_df.apply(
             lambda row: [
                 str(row.get('Month', 'N/A')),
-                str(row.get('Amount', 'N/A')).replace('₹', 'Rs.')
+                f"Rs.{float(row.get('Amount', 0)):,.2f}"
             ], axis=1
         ).tolist()
         
         create_table(headers, rows, widths, (255, 140, 0), [248, 255])
-    
-    # Section: Spending Visualization
-    if chart_path and os.path.exists(chart_path):
-        if pdf.get_y() > 150:
-            pdf.add_page()
-        pdf.section_header("Spending Visualization")
-        try:
-            chart_width = 180
-            x = (210 - chart_width) / 2
-            pdf.image(chart_path, x=x, y=pdf.get_y(), w=chart_width)
-            pdf.ln(pdf.get_y() + 10)
-        except Exception as e:
-            pdf.set_font('Helvetica', 'I', 10)
-            pdf.cell(0, 8, f"Chart could not be displayed: {str(e)}", 0, 1, 'C')
 
     # Section: Recent Transactions Sample
     if sample_df is not None and not sample_df.empty:
-        if pdf.get_y() > 200:
-            pdf.add_page()
+        # Always start on new page for better layout
+        pdf.add_page()
         pdf.section_header("Sample Recent Transactions")
         
         headers = ['Date', 'Description', 'Amount', 'Category']
@@ -197,7 +198,7 @@ def generate_pdf(result: dict, sample_df: pd.DataFrame = None, major_spends_df: 
             lambda row: [
                 str(row.get('Date', 'N/A').date()) if hasattr(row.get('Date'), 'date') else str(row.get('Date', 'N/A'))[:10],
                 str(row.get('Description', ''))[:40] + '...' if len(str(row.get('Description', ''))) > 40 else str(row.get('Description', 'N/A')),
-                f"Rs.{row.get('Amount', 0):.2f}",
+                f"Rs.{float(row.get('Amount', 0)):,.2f}",
                 str(row.get('Category', 'N/A'))[:15]
             ], axis=1
         ).tolist()
@@ -209,17 +210,16 @@ def generate_pdf(result: dict, sample_df: pd.DataFrame = None, major_spends_df: 
     pdf.section_header("Key Financial Recommendations")
     pdf.set_font('Helvetica', '', 10)
     recommendations = [
-        "📊 Review your spending patterns regularly to maintain financial awareness",
-        "💰 Focus on reducing expenses in your highest spending categories",
-        "🎯 Set monthly budgets for each spending category",
-        "📈 Track monthly spending trends to identify seasonal patterns",
-        "⚠️ Monitor large transactions and verify their necessity",
-        "💡 Consider automated savings based on your spending patterns",
-        "📱 Use expense tracking apps to maintain real-time awareness"
+        "- Review your spending patterns regularly to maintain financial awareness",
+        "- Focus on reducing expenses in your highest spending categories",
+        "- Set monthly budgets for each spending category",
+        "- Track monthly spending trends to identify seasonal patterns",
+        "- Monitor large transactions and verify their necessity",
+        "- Consider automated savings based on your spending patterns",
+        "- Use expense tracking apps to maintain real-time awareness"
     ]
     for rec in recommendations:
-        rec_clean = rec.replace('•', '-').replace('📊', '-').replace('💰', '-').replace('🎯', '-').replace('📈', '-').replace('⚠️', '-').replace('💡', '-').replace('📱', '-')
-        pdf.multi_cell(0, 7, rec_clean)
+        pdf.multi_cell(0, 7, rec)
         pdf.ln(2)
     
     # Output the PDF
